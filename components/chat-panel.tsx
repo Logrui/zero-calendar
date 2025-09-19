@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
+import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -94,7 +95,7 @@ export function ChatPanel({ open, onOpenChange, onToolExecution }: ChatPanelProp
     setError(null)
 
 
-    const userMessageObj = {
+    const userMessageObj: Message = {
       role: "user",
       content: userMessage,
       id: "user-" + Date.now(),
@@ -106,7 +107,8 @@ export function ChatPanel({ open, onOpenChange, onToolExecution }: ChatPanelProp
 
 
     const assistantMessageId = "assistant-" + Date.now()
-    setMessages((prev) => [...prev, { role: "assistant", content: "Thinking...", id: assistantMessageId }])
+    const assistantPlaceholder: Message = { role: "assistant", content: "Thinking...", id: assistantMessageId }
+    setMessages((prev) => [...prev, assistantPlaceholder])
 
     try {
 
@@ -218,11 +220,13 @@ export function ChatPanel({ open, onOpenChange, onToolExecution }: ChatPanelProp
 
   if (!open) return null
 
-  return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" onClick={handleClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-sm" onClick={handleClose}>
       <div
         className="fixed inset-y-0 right-0 w-full max-w-md border-l border-border bg-background shadow-lg"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b px-4 py-2">
@@ -298,6 +302,7 @@ export function ChatPanel({ open, onOpenChange, onToolExecution }: ChatPanelProp
           </form>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
