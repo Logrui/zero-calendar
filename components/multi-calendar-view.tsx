@@ -112,6 +112,13 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
   // Visual constants
   const WEEK_HOUR_PX = 60 // 60px per hour (about 30% taller than the previous look)
 
+  // Keep time indicator live
+  const [now, setNow] = useState<Date>(new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
 
   useEffect(() => {
     if (!session?.user?.id) return
@@ -777,88 +784,93 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
           {/* Month View */}
           {view === "month" && (
-            <>
-              <div className="grid grid-cols-7 border-b border-mono-200 dark:border-mono-700 bg-mono-50 dark:bg-mono-900">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div key={day} className="text-center py-3 font-medium text-sm text-mono-500 dark:text-mono-400">
-                    {day}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7 bg-background">
-                {daysInMonth.map((day, index) => (
-                  <div
-                    key={index}
-                    className={cn(
-                      "min-h-[100px] p-1 border-b border-r border-mono-200 dark:border-mono-700",
-                      !day.isCurrentMonth && "bg-mono-50 dark:bg-mono-900/50",
-                      isSameDay(day.date, new Date()) && "bg-blue-50 dark:bg-blue-900/10",
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={cn(
-                          "text-sm font-medium",
-                          !day.isCurrentMonth && "text-mono-400 dark:text-mono-600",
-                          isSameDay(day.date, new Date()) && "text-blue-600 dark:text-blue-400",
-                        )}
-                      >
-                        {format(day.date, "d")}
-                      </span>
-                      {isSameDay(day.date, new Date()) && (
-                        <Badge className="h-5 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-md px-1.5">
-                          Today
-                        </Badge>
-                      )}
+            <div className="h-[calc(90vh-200px)] overflow-hidden">
+              <div className="h-full overflow-y-auto scrollbar-hide flex flex-col">
+                <div className="grid grid-cols-7 border-b border-mono-200 dark:border-mono-700 bg-mono-50 dark:bg-mono-900">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div key={day} className="text-center py-3 font-medium text-sm text-mono-500 dark:text-mono-400">
+                      {day}
                     </div>
-                    <div className="mt-1 space-y-1">
-                      {day.events.slice(0, 3).map((event) => (
-                        <div
-                          key={event.id}
+                  ))}
+                </div>
+                <div
+                  className="grid grid-cols-7 flex-1 bg-background"
+                  style={{ gridTemplateRows: "repeat(6, minmax(0, 1fr))" }}
+                >
+                  {daysInMonth.map((day, index) => (
+                    <div
+                      key={index}
+                      className={cn(
+                        "h-full min-h-0 p-1 border-b border-r border-mono-200 dark:border-mono-700",
+                        !day.isCurrentMonth && "bg-mono-50 dark:bg-mono-900/50",
+                        isSameDay(day.date, new Date()) && "bg-blue-50 dark:bg-blue-900/10",
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span
                           className={cn(
-                            "text-xs px-1.5 py-0.5 rounded truncate cursor-pointer text-white",
-                            getEventColor(event),
+                            "text-sm font-medium",
+                            !day.isCurrentMonth && "text-mono-400 dark:text-mono-600",
+                            isSameDay(day.date, new Date()) && "text-blue-600 dark:text-blue-400",
                           )}
-                          onClick={() => handleEventClick(event)}
                         >
-                          {event.title}
-                          {event.recurrence && (
-                            <span className="ml-1 inline-flex">
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="M17 2.1l4 4-4 4" />
-                                <path d="M3 12.2v-2a4 4 0 0 1 4-4h12.8M7 21.9l-4-4 4-4" />
-                                <path d="M21 11.8v2a4 4 0 0 1-4 4H4.2" />
-                              </svg>
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                      {day.events.length > 3 && (
-                        <div
-                          className="text-xs text-center cursor-pointer hover:underline text-mono-500 dark:text-mono-400"
-                          onClick={() => {
-                            setCurrentDate(day.date)
-                            setView("day")
-                          }}
-                        >
-                          +{day.events.length - 3} more
-                        </div>
-                      )}
+                          {format(day.date, "d")}
+                        </span>
+                        {isSameDay(day.date, new Date()) && (
+                          <Badge className="h-5 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-md px-1.5">
+                            Today
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="mt-1 space-y-1">
+                        {day.events.slice(0, 3).map((event) => (
+                          <div
+                            key={event.id}
+                            className={cn(
+                              "text-xs px-1.5 py-0.5 rounded truncate cursor-pointer text-white",
+                              getEventColor(event),
+                            )}
+                            onClick={() => handleEventClick(event)}
+                          >
+                            {event.title}
+                            {event.recurrence && (
+                              <span className="ml-1 inline-flex">
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M17 2.1l4 4-4 4" />
+                                  <path d="M3 12.2v-2a4 4 0 0 1 4-4h12.8M7 21.9l-4-4 4-4" />
+                                  <path d="M21 11.8v2a4 4 0 0 1-4 4H4.2" />
+                                </svg>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                        {day.events.length > 3 && (
+                          <div
+                            className="text-xs text-center cursor-pointer hover:underline text-mono-500 dark:text-mono-400"
+                            onClick={() => {
+                              setCurrentDate(day.date)
+                              setView("day")
+                            }}
+                          >
+                            +{day.events.length - 3} more
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* Week View */}
@@ -953,6 +965,15 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
                           </div>
                         )
                       })}
+                      {/* Current time indicator in current day's column only */}
+                      {isSameDay(day.date, now) && (
+                        <div
+                          className="absolute left-0 right-0 border-t-2 border-red-500 z-10 pointer-events-none"
+                          style={{ top: `${(now.getHours() + now.getMinutes() / 60) * WEEK_HOUR_PX}px` }}
+                        >
+                          <div className="absolute -left-[5px] -top-[5px] w-[10px] h-[10px] rounded-full bg-red-500"></div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
