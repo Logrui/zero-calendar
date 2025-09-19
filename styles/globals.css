@@ -10,6 +10,32 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+  
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .scrollbar-hide {
+    -ms-overflow-style: none !important;  /* IE and Edge */
+    scrollbar-width: none !important;  /* Firefox */
+  }
+  
+  /* Ensure scrollbar hiding works in all contexts */
+  .scrollbar-hide::-webkit-scrollbar-track {
+    display: none !important;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar-thumb {
+    display: none !important;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar-corner {
+    display: none !important;
+  }
 }
 
 @layer base {
