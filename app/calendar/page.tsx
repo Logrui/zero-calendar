@@ -33,8 +33,8 @@ export default async function CalendarPage() {
       <CalendarHeader />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-auto p-4">
-                    <MultiCalendarView
+        <main className="flex-1 overflow-hidden p-4">
+          <MultiCalendarView
             initialEvents={events}
             initialCategories={categories.map((c) => c.name)}
           />

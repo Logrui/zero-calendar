@@ -109,6 +109,9 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
   const [sharedEvents, setSharedEvents] = useState<CalendarEvent[]>([])
   const [agendaRange, setAgendaRange] = useState<"day" | "week" | "month">("week")
 
+  // Visual constants
+  const WEEK_HOUR_PX = 60 // 60px per hour (about 30% taller than the previous look)
+
 
   useEffect(() => {
     if (!session?.user?.id) return
@@ -860,95 +863,98 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
           {/* Week View */}
           {view === "week" && (
-            <div className="flex flex-col h-[600px] overflow-hidden">
-              {/* Header with aligned columns */}
-              <div className="grid grid-cols-8 border-b border-mono-200 dark:border-mono-700 flex-shrink-0">
-                <div className="py-3 px-2 text-center font-medium text-sm text-mono-500 dark:text-mono-400 border-r border-mono-200 dark:border-mono-700">
-                  Time
-                </div>
-                {daysInWeek.map((day, index) => (
-                  <div
-                    key={day.date.toISOString()}
-                    className={cn(
-                      "py-3 px-2 text-center font-medium text-sm border-r border-mono-200 dark:border-mono-700 last:border-r-0",
-                      isSameDay(day.date, new Date())
-                        ? "bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400"
-                        : "text-mono-500 dark:text-mono-400",
-                    )}
-                  >
-                    <div>{format(day.date, "EEE")}</div>
-                    <div>{format(day.date, "MMM d")}</div>
+            <div className="h-[calc(90vh-200px)]">
+              <div className="h-full overflow-y-auto scrollbar-hide">
+                {/* Sticky header inside the scroll container to match widths */}
+                <div
+                  className="grid sticky top-0 z-10 border-b border-mono-200 dark:border-mono-700 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+                  style={{ gridTemplateColumns: "80px repeat(7, minmax(0,1fr))" }}
+                >
+                  <div className="py-3 px-2 text-center font-medium text-sm text-mono-500 dark:text-mono-400 border-r border-mono-200 dark:border-mono-700 box-border">
+                    Time
                   </div>
-                ))}
-              </div>
+                  {daysInWeek.map((day) => (
+                    <div
+                      key={day.date.toISOString()}
+                      className={cn(
+                        "py-3 px-2 text-center font-medium text-sm border-r border-mono-200 dark:border-mono-700 last:border-r-0 box-border",
+                        isSameDay(day.date, new Date())
+                          ? "bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400"
+                          : "text-mono-500 dark:text-mono-400",
+                      )}
+                    >
+                      <div>{format(day.date, "EEE")}</div>
+                      <div>{format(day.date, "MMM d")}</div>
+                    </div>
+                  ))}
+                </div>
 
-              {/* Time grid with synchronized scrolling */}
-              <div className="flex flex-1 min-h-0">
-                {/* Time column */}
-                <div className="w-[calc(100%/8)] flex-shrink-0 border-r border-mono-200 dark:border-mono-700 overflow-hidden">
-                  <div className="overflow-y-scroll scrollbar-hide" style={{ height: '100%' }}>
+                {/* Body grid shares exactly the same template */}
+                <div
+                  className="grid"
+                  style={{ gridTemplateColumns: "80px repeat(7, minmax(0,1fr))" }}
+                >
+                  {/* Time column */}
+                  <div className="border-r border-mono-200 dark:border-mono-700 box-border">
                     {Array.from({ length: 24 }).map((_, hour) => (
-                      <div key={hour} className="h-12 text-xs text-mono-500 dark:text-mono-400 text-right pr-2 pt-0 border-b border-mono-200 dark:border-mono-700 last:border-b-0">
+                      <div
+                        key={hour}
+                        className="text-xs text-mono-500 dark:text-mono-400 text-right pr-2 pt-0 border-b border-mono-200 dark:border-mono-700 last:border-b-0"
+                        style={{ height: `${WEEK_HOUR_PX}px` }}
+                      >
                         {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
                       </div>
                     ))}
                   </div>
-                </div>
 
-                {/* Days grid */}
-                <div className="flex-1 overflow-hidden">
-                  <div className="overflow-y-scroll scrollbar-hide" style={{ height: '100%' }}>
-                    <div className="grid grid-cols-7 h-full">
-                      {daysInWeek.map((day, index) => (
+                  {/* 7 day columns */}
+                  {daysInWeek.map((day) => (
+                    <div
+                      key={day.date.toISOString()}
+                      className="relative border-r border-mono-200 dark:border-mono-700 last:border-r-0 box-border"
+                    >
+                      {/* Hour grid lines */}
+                      {Array.from({ length: 24 }).map((_, hour) => (
                         <div
-                          key={day.date.toISOString()}
-                          className={cn(
-                            "relative border-r border-mono-200 dark:border-mono-700 last:border-r-0"
-                          )}
-                        >
-                          {/* Hour grid lines */}
-                          {Array.from({ length: 24 }).map((_, hour) => (
-                            <div
-                              key={hour}
-                              className="h-12 border-b border-mono-200 dark:border-mono-700 last:border-b-0"
-                            ></div>
-                          ))}
-
-                          {/* Events for this day */}
-                          {day.events.map((event) => {
-                            const startDate = new Date(event.start)
-                            const endDate = new Date(event.end)
-
-                            const startHour = startDate.getHours() + startDate.getMinutes() / 60
-                            const endHour = endDate.getHours() + endDate.getMinutes() / 60
-                            const duration = endHour - startHour
-
-                            const top = startHour * 12
-                            const height = Math.max(duration * 12, 16)
-
-                            return (
-                              <div
-                                key={event.id}
-                                className={cn(
-                                  "absolute left-0 right-1 px-1 py-0.5 rounded text-white text-xs overflow-hidden cursor-pointer",
-                                  getEventColor(event),
-                                )}
-                                style={{ top: `${top}px`, height: `${height}px` }}
-                                onClick={() => handleEventClick(event)}
-                              >
-                                <div className="font-medium truncate">{event.title}</div>
-                                {height > 30 && (
-                                  <div className="text-[10px] opacity-90 truncate">
-                                    {format(startDate, "h:mm a")} - {format(endDate, "h:mm a")}
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
+                          key={hour}
+                          className="border-b border-mono-200 dark:border-mono-700 last:border-b-0"
+                          style={{ height: `${WEEK_HOUR_PX}px` }}
+                        ></div>
                       ))}
+
+                      {/* Events for this day */}
+                      {day.events.map((event) => {
+                        const startDate = new Date(event.start)
+                        const endDate = new Date(event.end)
+
+                        const startHour = startDate.getHours() + startDate.getMinutes() / 60
+                        const endHour = endDate.getHours() + endDate.getMinutes() / 60
+                        const duration = endHour - startHour
+
+                        const top = startHour * WEEK_HOUR_PX
+                        const height = Math.max(duration * WEEK_HOUR_PX, 16)
+
+                        return (
+                          <div
+                            key={event.id}
+                            className={cn(
+                              "absolute left-0 right-1 px-1 py-0.5 rounded text-white text-xs overflow-hidden cursor-pointer",
+                              getEventColor(event),
+                            )}
+                            style={{ top: `${top}px`, height: `${height}px` }}
+                            onClick={() => handleEventClick(event)}
+                          >
+                            <div className="font-medium truncate">{event.title}</div>
+                            {height > 30 && (
+                              <div className="text-[10px] opacity-90 truncate">
+                                {format(startDate, "h:mm a")} - {format(endDate, "h:mm a")}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -956,81 +962,88 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
           {/* Day View */}
           {view === "day" && (
-            <div className="flex flex-col h-[600px] overflow-hidden">
-              <div className="py-3 px-4 border-b border-mono-200 dark:border-mono-700 bg-mono-50 dark:bg-mono-900 flex-shrink-0">
-                <div className="text-center font-medium">
-                  {format(currentDate, "EEEE, MMMM d, yyyy")}
-                  {isSameDay(currentDate, new Date()) && (
-                    <Badge className="ml-2 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Today</Badge>
-                  )}
+            <div className="h-[calc(90vh-200px)]">
+              <div className="h-full overflow-y-auto scrollbar-hide">
+                {/* Sticky header inside scroll container */}
+                <div className="sticky top-0 z-10 border-b border-mono-200 dark:border-mono-700 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                  <div className="grid" style={{ gridTemplateColumns: "80px minmax(0,1fr)" }}>
+                    <div className="py-3 px-2 text-center font-medium text-sm text-mono-500 dark:text-mono-400 border-r border-mono-200 dark:border-mono-700 box-border">
+                      Time
+                    </div>
+                    <div className="py-3 px-4 text-center font-medium">
+                      {format(currentDate, "EEEE, MMMM d, yyyy")}
+                      {isSameDay(currentDate, new Date()) && (
+                        <Badge className="ml-2 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Today</Badge>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex flex-1 min-h-0">
-                <div className="w-[60px] flex-shrink-0 border-r border-mono-200 dark:border-mono-700 overflow-hidden">
-                  <div className="overflow-y-scroll scrollbar-hide" style={{ height: '100%' }}>
+                {/* Body grid with shared template */}
+                <div className="grid" style={{ gridTemplateColumns: "80px minmax(0,1fr)" }}>
+                  {/* Time column */}
+                  <div className="border-r border-mono-200 dark:border-mono-700 box-border">
                     {Array.from({ length: 24 }).map((_, hour) => (
-                      <div key={hour} className="h-12 text-xs text-mono-500 dark:text-mono-400 text-right pr-2 pt-0 border-b border-mono-200 dark:border-mono-700 last:border-b-0">
+                      <div
+                        key={hour}
+                        className="text-xs text-mono-500 dark:text-mono-400 text-right pr-2 pt-0 border-b border-mono-200 dark:border-mono-700 last:border-b-0"
+                        style={{ height: `${WEEK_HOUR_PX}px` }}
+                      >
                         {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
                       </div>
                     ))}
                   </div>
-                </div>
 
-                <div className="flex-1 overflow-hidden">
-                  <div className="overflow-y-scroll scrollbar-hide relative" style={{ height: '100%' }}>
+                  {/* Day column */}
+                  <div className="relative box-border">
                     {/* Hour grid lines */}
                     {Array.from({ length: 24 }).map((_, hour) => (
                       <div
                         key={hour}
-                        className="h-12 border-b border-mono-200 dark:border-mono-700 last:border-b-0"
+                        className="border-b border-mono-200 dark:border-mono-700 last:border-b-0"
+                        style={{ height: `${WEEK_HOUR_PX}px` }}
                       ></div>
                     ))}
 
                     {/* Events for this day */}
                     {eventsForDay.map((event) => {
-                    const startDate = new Date(event.start)
-                    const endDate = new Date(event.end)
+                      const startDate = new Date(event.start)
+                      const endDate = new Date(event.end)
 
+                      const startHour = startDate.getHours() + startDate.getMinutes() / 60
+                      const endHour = endDate.getHours() + endDate.getMinutes() / 60
+                      const duration = endHour - startHour
 
-                    const startHour = startDate.getHours() + startDate.getMinutes() / 60
-                    const endHour = endDate.getHours() + endDate.getMinutes() / 60
-                    const duration = endHour - startHour
+                      const top = startHour * WEEK_HOUR_PX
+                      const height = Math.max(duration * WEEK_HOUR_PX, 24)
 
-
-                    const top = startHour * 12
-
-                    const height = Math.max(duration * 12, 24)
-
-                    return (
-                      <div
-                        key={event.id}
-                        className={cn("absolute left-2 right-2 px-2 py-1 rounded text-white", getEventColor(event))}
-                        style={{ top: `${top}px`, height: `${height}px` }}
-                        onClick={() => handleEventClick(event)}
-                      >
-                        <div className="font-medium truncate">{event.title}</div>
-                        {height > 40 && (
-                          <>
-                            <div className="text-xs opacity-90">
-                              {format(startDate, "h:mm a")} - {format(endDate, "h:mm a")}
-                            </div>
-                            {event.location && height > 60 && (
-                              <div className="text-xs opacity-90 truncate mt-1">📍 {event.location}</div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
+                      return (
+                        <div
+                          key={event.id}
+                          className={cn("absolute left-2 right-2 px-2 py-1 rounded text-white", getEventColor(event))}
+                          style={{ top: `${top}px`, height: `${height}px` }}
+                          onClick={() => handleEventClick(event)}
+                        >
+                          <div className="font-medium truncate">{event.title}</div>
+                          {height > 40 && (
+                            <>
+                              <div className="text-xs opacity-90">
+                                {format(startDate, "h:mm a")} - {format(endDate, "h:mm a")}
+                              </div>
+                              {event.location && height > 60 && (
+                                <div className="text-xs opacity-90 truncate mt-1">📍 {event.location}</div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )
+                    })}
 
                     {/* Current time indicator */}
                     {isSameDay(currentDate, new Date()) && (
                       <div
                         className="absolute left-0 right-0 border-t-2 border-red-500 z-10"
-                        style={{
-                          top: `${(new Date().getHours() + new Date().getMinutes() / 60) * 12}px`,
-                        }}
+                        style={{ top: `${(new Date().getHours() + new Date().getMinutes() / 60) * WEEK_HOUR_PX}px` }}
                       >
                         <div className="absolute -left-[5px] -top-[5px] w-[10px] h-[10px] rounded-full bg-red-500"></div>
                       </div>
