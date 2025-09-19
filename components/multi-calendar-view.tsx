@@ -196,7 +196,11 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
         try {
           const fetchedCategories = await getUserCategories(session.user.id)
-          setCategories(fetchedCategories || [])
+          // Normalize to a string[] of category names/ids for filtering UI
+          const names: string[] = (fetchedCategories || []).map((c: any) =>
+            typeof c === "string" ? c : (c?.name ?? c?.id ?? "")
+          ).filter(Boolean)
+          setCategories(names)
         } catch (categoriesError) {
           console.error("Error fetching categories:", categoriesError)
           setCategories([])
@@ -234,30 +238,18 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
 
     if (selectedCategories.length > 0) {
-      filtered = filtered.filter((event) => event.category && selectedCategories.includes(event.category))
+      filtered = filtered.filter((event) => event.categoryId && selectedCategories.includes(event.categoryId as string))
     }
 
 
     filtered = filtered.filter((event) => {
-
-      if (event.shared && visibleCalendars.shared) {
-        return true
-      }
-
-      if (event.source === "google" && visibleCalendars.personal) {
-        return true
-      }
-
-      if (event.category === "Work" && visibleCalendars.work) {
-        return true
-      }
-
-      if (event.category === "Family" && visibleCalendars.family) {
-        return true
-      }
-
-
-      return !event.category && !event.shared && visibleCalendars.personal
+      // Shared calendar visibility
+      if (event.isShared && visibleCalendars.shared) return true
+      // Personal/google visibility
+      if (event.source === "google" && visibleCalendars.personal) return true
+      // Fallback to personal if not marked shared and visible
+      if (!event.isShared && visibleCalendars.personal) return true
+      return false
     })
 
     return filtered
@@ -381,7 +373,7 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
 
   const eventsForAgenda = useMemo(() => {
-    if (view !== "agenda") return []
+    if (view !== "agenda") return { startDate: currentDate, endDate: currentDate, eventsByDate: {} as Record<string, CalendarEvent[]> }
 
     let startDate: Date, endDate: Date
 
@@ -509,18 +501,20 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
 
 
   const getEventColor = useCallback((event: CalendarEvent) => {
-    if (event.category && CATEGORY_COLORS[event.category]) {
-      return CATEGORY_COLORS[event.category]
+    // Prefer categoryId-driven coloring if available
+    if ((event as any).categoryId && CATEGORY_COLORS[(event as any).categoryId as keyof typeof CATEGORY_COLORS]) {
+      return CATEGORY_COLORS[(event as any).categoryId as keyof typeof CATEGORY_COLORS]
     }
 
-    if (event.shared) {
+    // Shared events color
+    if ((event as any).isShared) {
       return CALENDAR_TYPES.shared.color
     }
 
+    // Source-based fallback
     if (event.source === "google") {
       return CALENDAR_TYPES.personal.color
     }
-
 
     return "bg-gray-500"
   }, [])
@@ -1256,16 +1250,14 @@ export function MultiCalendarView({ initialEvents, initialCategories = [] }: Mul
         }}
       />
 
-      {/* Natural Language Event Dialog */}
       <NaturalLanguageEventDialog
-        open={showNaturalLanguageDialog}
-        onOpenChange={setShowNaturalLanguageDialog}
+        isOpen={showNaturalLanguageDialog && !!session?.user?.id}
+        onClose={() => setShowNaturalLanguageDialog(false)}
+        userId={session?.user?.id || ""}
         onEventCreated={() => {
-
           if (session?.user?.id) {
             const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
             const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
-
             getEvents(session.user.id, startDate, endDate).then((refreshedEvents) => {
               setEvents(refreshedEvents)
             })
