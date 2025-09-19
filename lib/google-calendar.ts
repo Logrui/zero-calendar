@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv"
+import { kv } from "@/lib/kv-config"
 import type { CalendarEvent } from "@/lib/calendar"
 
 import { getUserTimezone } from "@/lib/auth"
@@ -104,20 +104,22 @@ async function refreshAccessTokenIfNeeded(userId: string, refreshToken: string, 
 /**
  * Convert Google Calendar event to our CalendarEvent format
  */
-function convertGoogleEventToCalendarEvent(googleEvent: GoogleCalendarEvent, userId: string): CalendarEvent {
+function convertGoogleEventToCalendarEvent(googleEvent: any, userId: string): CalendarEvent {
+  const allDay = !googleEvent.start.dateTime;
   return {
     id: `google_${googleEvent.id}`,
-    title: googleEvent.summary,
+    title: googleEvent.summary || "(No Title)",
     description: googleEvent.description,
-    start: googleEvent.start.dateTime,
-    end: googleEvent.end.dateTime,
+    start: googleEvent.start.dateTime || googleEvent.start.date,
+    end: googleEvent.end.dateTime || googleEvent.end.date,
+    allDay,
     location: googleEvent.location,
     color: googleEvent.colorId ? colorMap[googleEvent.colorId] || "#3b82f6" : "#3b82f6",
     userId,
     source: "google",
-
+    sourceId: googleEvent.id,
     timezone: googleEvent.start.timeZone || "UTC",
-  }
+  };
 }
 
 
@@ -155,45 +157,44 @@ export async function getGoogleCalendarEvents(
   endDate: Date,
   calendarId: string = DEFAULT_CALENDAR_ID,
 ): Promise<CalendarEvent[]> {
+  console.log(`[Google] Fetching events for user ${userId} from calendar ${calendarId}`);
   try {
+    const token = await refreshAccessTokenIfNeeded(userId, refreshToken, expiresAt);
 
-    const token = await refreshAccessTokenIfNeeded(userId, refreshToken, expiresAt)
+    const userTimezone = await getUserTimezone(userId);
 
+    const timeMin = startDate.toISOString();
+    const timeMax = endDate.toISOString();
 
-    const userTimezone = await getUserTimezone(userId)
+    const url = `${GOOGLE_CALENDAR_API_BASE}/calendars/${encodeURIComponent(
+      calendarId,
+    )}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&timeZone=${encodeURIComponent(userTimezone)}`;
+    console.log(`[Google] Fetching URL: ${url}`);
 
-
-    const timeMin = startDate.toISOString()
-    const timeMax = endDate.toISOString()
-
-
-    const response = await fetch(
-      `${GOOGLE_CALENDAR_API_BASE}/calendars/${encodeURIComponent(
-        calendarId,
-      )}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&timeZone=${encodeURIComponent(userTimezone)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
       },
-    )
+    });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch Google Calendar events: ${response.statusText}`)
+      const errorBody = await response.text();
+      console.error(`[Google] API Error Response: ${errorBody}`);
+      throw new Error(`Failed to fetch Google Calendar events: ${response.statusText}`);
     }
 
-    const data = await response.json()
+    const data = await response.json();
+    console.log('[Google] Raw response from API:', JSON.stringify(data, null, 2));
 
+    const events = data.items.map((item: any) => convertGoogleEventToCalendarEvent(item, userId));
 
-    const events = data.items.map((item: GoogleCalendarEvent) => convertGoogleEventToCalendarEvent(item, userId))
+    await storeGoogleEventsInDatabase(userId, events);
 
-
-    await storeGoogleEventsInDatabase(userId, events)
-
-    return events
+    console.log(`[Google] Successfully converted ${events.length} events.`);
+    return events;
   } catch (error) {
-    console.error("Error fetching Google Calendar events:", error)
-    return []
+    console.error("Error fetching Google Calendar events:", error);
+    return [];
   }
 }
 
@@ -248,13 +249,11 @@ export async function createGoogleCalendarEvent(
   event: CalendarEvent,
   calendarId: string = DEFAULT_CALENDAR_ID,
 ): Promise<CalendarEvent | null> {
+  console.log(`[Google] Creating event titled '${event.title}' in Google Calendar for user ${userId}`);
   try {
+    const token = await refreshAccessTokenIfNeeded(userId, refreshToken, expiresAt);
 
-    const token = await refreshAccessTokenIfNeeded(userId, refreshToken, expiresAt)
-
-
-    const googleEvent = convertCalendarEventToGoogleEvent(event)
-
+    const googleEvent = await convertCalendarEventToGoogleEvent(event);
 
     const response = await fetch(`${GOOGLE_CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events`, {
       method: "POST",
@@ -263,22 +262,23 @@ export async function createGoogleCalendarEvent(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(googleEvent),
-    })
+    });
 
     if (!response.ok) {
-      throw new Error(`Failed to create Google Calendar event: ${response.statusText}`)
+      const errorBody = await response.text();
+      console.error(`[Google] API Error on create: ${errorBody}`);
+      throw new Error(`Failed to create Google Calendar event: ${response.statusText}`);
     }
 
-    const data = await response.json()
+    const data = await response.json();
+    console.log(`[Google] Successfully created event, API response:`, data);
 
-
-    return convertGoogleEventToCalendarEvent(data, userId)
+    return convertGoogleEventToCalendarEvent(data, userId);
   } catch (error) {
-    console.error("Error creating Google Calendar event:", error)
-    return null
+    console.error("Error creating Google Calendar event:", error);
+    return null;
   }
 }
-
 /**
  * Update an event in Google Calendar
  */

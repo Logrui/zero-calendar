@@ -1,3 +1,5 @@
+"use server";
+
 import { generateText } from "ai"
 import { groq } from "@ai-sdk/groq"
 import { calendarTools } from "./ai-tools"

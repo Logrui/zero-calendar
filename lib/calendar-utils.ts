@@ -1,10 +1,13 @@
-import { kv } from "@/lib/kv-config"
+"use server";
+
+import { kv } from "@/lib/kv-config";
+import type { CalendarEvent } from "@/lib/calendar";
 
 
 export async function getEvents(userId: string, start: Date, end: Date) {
   try {
 
-    const events = await kv.lrange(`user:${userId}:events`, 0, -1)
+    const events = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1)
 
 
     if (!events || events.length === 0) {
@@ -34,7 +37,7 @@ export async function findAvailableTimeSlots(userId: string, date: string, durat
     endOfDay.setHours(23, 59, 59, 999)
 
 
-    const events = await kv.lrange(`user:${userId}:events`, 0, -1)
+    const events = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1)
     const dayEvents = events.filter((event) => {
       const eventStart = new Date(event.start)
       const eventEnd = new Date(event.end)
@@ -112,7 +115,7 @@ export async function checkForConflicts(userId: string, start: string, end: stri
     const dayEnd = new Date(startTime)
     dayEnd.setHours(23, 59, 59, 999)
 
-    const events = await kv.lrange(`user:${userId}:events`, 0, -1)
+    const events = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1)
     const dayEvents = events.filter((event) => {
       const eventStart = new Date(event.start)
       const eventEnd = new Date(event.end)
@@ -152,7 +155,7 @@ export async function analyzeBusyTimes(userId: string, startDate: string, endDat
     const end = new Date(endDate)
 
 
-    const events = await kv.lrange(`user:${userId}:events`, 0, -1)
+    const events = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1)
     const rangeEvents = events.filter((event) => {
       const eventStart = new Date(event.start)
       const eventEnd = new Date(event.end)

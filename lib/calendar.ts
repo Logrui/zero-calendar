@@ -1,3 +1,5 @@
+"use server";
+
 import { kv } from "@/lib/kv-config"
 import { nanoid } from "nanoid"
 import { format } from "date-fns-tz"
@@ -5,7 +7,8 @@ import { parseISO, addMinutes } from "date-fns"
 import { createGoogleCalendarEvent, getGoogleCalendarEvents } from "./google-calendar"
 import ical from "ical-generator"
 import { v4 as uuidv4 } from "uuid"
-import { RRule } from "rrule"
+import { RRule } from 'rrule';
+import type { Options as RRuleOptions, Weekday } from 'rrule';
 
 
 export type RecurrenceRule = {
@@ -68,8 +71,8 @@ export type CalendarCategory = {
 }
 
 
-function recurrenceRuleToRRuleOptions(rule: RecurrenceRule, eventStart: Date): RRule.Options {
-  const options: RRule.Options = {
+function recurrenceRuleToRRuleOptions(rule: RecurrenceRule, eventStart: Date): Partial<RRuleOptions> {
+  const options: Partial<RRuleOptions> = {
     freq: {
       daily: RRule.DAILY,
       weekly: RRule.WEEKLY,
@@ -90,7 +93,7 @@ function recurrenceRuleToRRuleOptions(rule: RecurrenceRule, eventStart: Date): R
 
   if (rule.byDay) {
     options.byweekday = rule.byDay.map((day) => {
-      const dayMap: Record<string, number> = {
+      const dayMap: Record<string, Weekday> = {
         MO: RRule.MO,
         TU: RRule.TU,
         WE: RRule.WE,
@@ -290,18 +293,21 @@ function getTimezoneOffset(date: Date, timezone: string): number {
 }
 
 export async function getEvents(userId: string, start: Date, end: Date): Promise<CalendarEvent[]> {
+  console.log(`[Cache] Fetching events for user ${userId} from local cache...`);
   try {
+    const events = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1);
 
-    const events = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1)
+    const filteredEvents = events.filter((event) => {
+      if (!event || !event.start) return false;
+      const eventStart = new Date(event.start);
+      return eventStart >= start && eventStart <= end;
+    });
 
-
-    return events.filter((event) => {
-      const eventStart = new Date(event.start)
-      return eventStart >= start && eventStart <= end
-    })
+    console.log(`[Cache] Found ${events.length} total events, returning ${filteredEvents.length} within the requested date range.`);
+    return filteredEvents;
   } catch (error) {
-    console.error("Error fetching events:", error)
-    throw new Error("Failed to fetch events")
+    console.error("Error fetching events:", error);
+    throw new Error("Failed to fetch events");
   }
 }
 
@@ -349,19 +355,19 @@ export async function createEvent(event: Omit<CalendarEvent, "id">): Promise<Cal
 
 export async function updateEvent(event: CalendarEvent): Promise<CalendarEvent> {
   try {
+    const events = await kv.lrange<CalendarEvent>(`user:${event.userId}:events`, 0, -1);
+    const eventIndex = events.findIndex((e) => e.id === event.id);
 
-    const events = await kv.lrange<CalendarEvent>(`user:${event.userId}:events`, 0, -1)
-    const updatedEvents = events.map((e) => (e.id === event.id ? event : e))
-
-    await kv.del(`user:${event.userId}:events`)
-    if (updatedEvents.length > 0) {
-      await kv.rpush(`user:${event.userId}:events`, ...updatedEvents)
+    if (eventIndex === -1) {
+      throw new Error("Event not found");
     }
 
-    return event
+    await kv.lset(`user:${event.userId}:events`, eventIndex, event);
+
+    return event;
   } catch (error) {
-    console.error("Error updating event:", error)
-    throw new Error("Failed to update event")
+    console.error("Error updating event:", error);
+    throw new Error("Failed to update event");
   }
 }
 
@@ -430,37 +436,33 @@ export async function searchEvents(userId: string, query: string): Promise<Calen
 
       const allMatchingEvents = [...matchingEvents, ...matchingGoogleEvents]
       const uniqueEvents = allMatchingEvents.filter(
-        (event, index, self) => index === self.findIndex((e) => e.id === event.id),
+        (event, index, self) => index === self.findIndex((e) => (e as CalendarEvent).id === (event as CalendarEvent).id),
       )
 
-      return uniqueEvents.map((event) => adjustEventTimezone(event as CalendarEvent, timezone))
+      const userTimezone = await getUserTimezone(userId);
+      return uniqueEvents.map((event) => adjustEventTimezone(event as CalendarEvent, timezone, userTimezone))
     } catch (error) {
       console.error("Error searching Google Calendar:", error)
 
     }
   }
 
-  return matchingEvents.map((event) => adjustEventTimezone(event as CalendarEvent, timezone))
+  const userTimezone = await getUserTimezone(userId);
+  return matchingEvents.map((event) => adjustEventTimezone(event as CalendarEvent, timezone, userTimezone))
 }
 
 
 export async function exportToICS(userId: string, start?: Date, end?: Date): Promise<string> {
-
-  const userTimezone = await getUserTimezone(userId)
-
-
-  const events = await getEvents(userId, start || new Date(0), end || new Date(Date.now() + 1000 * 60 * 60 * 24 * 365))
-
+  const userTimezone = await getUserTimezone(userId);
+  const events = await getEvents(userId, start || new Date(0), end || new Date(Date.now() + 1000 * 60 * 60 * 24 * 365));
 
   const calendar = ical({
     name: "Zero Calendar",
     timezone: userTimezone,
-  })
-
+  });
 
   events.forEach((event) => {
-
-    if (event.isRecurringInstance) return
+    if (event.isRecurringInstance) return;
 
     const icalEvent = calendar.createEvent({
       id: event.id,
@@ -471,21 +473,18 @@ export async function exportToICS(userId: string, start?: Date, end?: Date): Pro
       location: event.location,
       timezone: event.timezone || userTimezone,
       allDay: event.allDay,
-    })
-
+    });
 
     if (event.recurrence) {
-      const rruleOptions = recurrenceRuleToRRuleOptions(event.recurrence, new Date(event.start))
-      const rule = new RRule(rruleOptions)
-      icalEvent.repeating(rule.toString())
-
+      const rruleOptions = recurrenceRuleToRRuleOptions(event.recurrence, new Date(event.start));
+      const rule = new RRule(rruleOptions);
+      (icalEvent as any).repeating(rule.toString());
 
       if (event.exceptions) {
         event.exceptions.forEach((exception) => {
           if (exception.status === "cancelled") {
-            icalEvent.exdate(new Date(exception.date))
+            (icalEvent as any).exdate(new Date(exception.date));
           } else if (exception.status === "modified" && exception.modifiedEvent) {
-
             calendar.createEvent({
               id: `${event.id}_exception_${new Date(exception.date).toISOString()}`,
               start: new Date(exception.modifiedEvent.start || event.start),
@@ -494,14 +493,13 @@ export async function exportToICS(userId: string, start?: Date, end?: Date): Pro
               description: exception.modifiedEvent.description || event.description,
               location: exception.modifiedEvent.location || event.location,
               timezone: event.timezone || userTimezone,
-              allDay: exception.modifiedEvent.allDay || event.allDay,
+              allDay: !!exception.modifiedEvent.allDay || event.allDay,
               recurrenceId: new Date(exception.date),
-            })
+            });
           }
-        })
+        });
       }
     }
-
 
     if (event.attendees) {
       event.attendees.forEach((attendee) => {
@@ -509,17 +507,16 @@ export async function exportToICS(userId: string, start?: Date, end?: Date): Pro
           email: attendee.email,
           name: attendee.name,
           status: attendee.status as any,
-        })
-      })
+        });
+      });
     }
-
 
     if (event.categories) {
-      icalEvent.categories(event.categories)
+        icalEvent.categories(event.categories.map(c => ({name: c})));
     }
-  })
+  });
 
-  return calendar.toString()
+  return calendar.toString();
 }
 
 
@@ -891,21 +888,29 @@ export async function getSharedEvents(userId: string, start?: Date, end?: Date):
 
 
 export async function syncWithGoogleCalendar(userId: string): Promise<{ success: boolean; message: string }> {
+  console.log(`[Sync] Starting Google Calendar sync for user: ${userId}`);
   try {
+    const userData = await kv.hgetall(`user:${userId}`);
+    
+    // DEBUG: Log what's actually in Redis
+    console.log('[Sync] Raw user data from Redis:', JSON.stringify(userData, null, 2));
+    console.log('[Sync] User data keys:', userData ? Object.keys(userData) : 'null');
+    console.log('[Sync] Provider:', userData?.provider);
+    console.log('[Sync] Has accessToken:', !!userData?.accessToken);
+    console.log('[Sync] Has refreshToken:', !!userData?.refreshToken);
 
-    const userData = await kv.hgetall(`user:${userId}`)
-
+    console.log('[Sync] Checking for Google Calendar credentials...');
     if (!userData?.provider || userData.provider !== "google" || !userData.accessToken || !userData.refreshToken) {
+      console.log('[Sync] Credentials not found. Aborting sync.');
       return {
         success: false,
         message: "Google Calendar is not connected. Please connect your Google account first.",
-      }
+      };
     }
 
-
-    const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-
+    console.log('[Sync] Credentials found. Fetching events from Google Calendar...');
+    const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+    const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year from now
 
     const googleEvents = await getGoogleCalendarEvents(
       userId,
@@ -914,17 +919,35 @@ export async function syncWithGoogleCalendar(userId: string): Promise<{ success:
       userData.expiresAt as number,
       start,
       end,
-    )
+    );
+    console.log(`[Sync] Fetched ${googleEvents.length} events from Google Calendar.`);
 
+    // Get existing local events
+    const localEvents = await kv.lrange<CalendarEvent>(`user:${userId}:events`, 0, -1);
+    console.log(`[Sync] Found ${localEvents.length} existing local events.`);
 
-    const localEvents = (await kv.zrange(`events:${userId}`, 0, -1)) as CalendarEvent[]
+    // --- Sync Google events TO local cache ---
+    const googleEventIds = new Set(googleEvents.map(e => e.sourceId));
+    // Filter out any local events that were originally from Google to avoid duplicates
+    const nonGoogleLocalEvents = localEvents.filter(e => e.source !== 'google' || !googleEventIds.has(e.sourceId));
+    console.log(`[Sync] Found ${nonGoogleLocalEvents.length} local-only events.`);
 
+    const allEvents = [...googleEvents, ...nonGoogleLocalEvents];
 
-    const nonGoogleEvents = localEvents.filter((event) => event.source !== "google")
+    console.log(`[Sync] Saving a total of ${allEvents.length} events to the local cache.`);
+    await kv.del(`user:${userId}:events`);
+    if (allEvents.length > 0) {
+      await kv.rpush(`user:${userId}:events`, ...allEvents);
+    }
+    console.log('[Sync] Successfully saved events to cache.');
 
+    // --- Sync local events TO Google Calendar ---
+    const eventsToSyncToGoogle = localEvents.filter((event) => event.source !== "google");
+    console.log(`[Sync] Found ${eventsToSyncToGoogle.length} local events to sync to Google Calendar.`);
 
-    let created = 0
-    for (const event of nonGoogleEvents) {
+    let created = 0;
+
+    for (const event of eventsToSyncToGoogle) {
       try {
         await createGoogleCalendarEvent(
           userId,
@@ -932,26 +955,27 @@ export async function syncWithGoogleCalendar(userId: string): Promise<{ success:
           userData.refreshToken as string,
           userData.expiresAt as number,
           event,
-        )
-        created++
+        );
+        created++;
       } catch (error) {
-        console.error("Error creating event in Google Calendar:", error)
+        console.error("Error creating event in Google Calendar:", error);
       }
     }
 
-
-    await kv.hset(`user:${userId}`, { lastGoogleSync: Date.now() })
+    console.log(`[Sync] Synced ${created} local events to Google Calendar.`);
+    await kv.hset(`user:${userId}`, { lastGoogleSync: new Date().toISOString() });
+    console.log('[Sync] Updated last sync timestamp.');
 
     return {
       success: true,
-      message: `Sync completed successfully. ${created} local events were added to Google Calendar.`,
-    }
+      message: `Sync completed. Fetched ${googleEvents.length} events from Google and synced ${created} local events.`,
+    };
   } catch (error) {
-    console.error("Error syncing with Google Calendar:", error)
+    console.error("[Sync] Error during Google Calendar sync:", error);
     return {
       success: false,
       message: "An error occurred while syncing with Google Calendar. Please try again later.",
-    }
+    };
   }
 }
 

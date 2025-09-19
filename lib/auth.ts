@@ -6,6 +6,16 @@ import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { getServerSession } from "next-auth/next"
 
+// Define a User type for better type safety
+interface User {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+  password?: string | null;
+  [key: string]: any; // Allow other properties
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -53,20 +63,70 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account, user }) {
-      if (account) {
-        token.accessToken = account.access_token
-        token.refreshToken = account.refresh_token
-        token.expiresAt = account.expires_at
-        token.provider = account.provider
-      }
+      console.log("[Auth] JWT Callback triggered!");
+      console.log("[Auth] Has account:", !!account);
+      console.log("[Auth] Has user:", !!user);
+      console.log("[Auth] Account provider:", account?.provider);
+      
+      if (account && user) {
+        console.log("[Auth] JWT Callback: Account and User found, processing new sign-in...");
+        console.log("[Auth] JWT Callback: Account details", account);
 
-      if (user) {
-        token.id = user.id
+        token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
+        token.expiresAt = account.expires_at;
+        token.provider = account.provider;
+        token.id = user.id;
+
+        // Persist the user's credentials and provider info to the database
+        try {
+          console.log(`[Auth] JWT Callback: Saving credentials for user ${user.id} to KV store...`);
+          await kv.hset(`user:${user.id}`, {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token,
+            expiresAt: account.expires_at,
+            provider: account.provider,
+          });
+          console.log("[Auth] JWT Callback: Successfully saved credentials.");
+        } catch (error) {
+          console.error("[Auth] JWT Callback: Error saving user data to KV store:", error);
+        }
+      } else if (token.id && token.accessToken && token.refreshToken && token.provider) {
+        console.log("[Auth] JWT Callback: Existing session with credentials, checking if saved to Redis...");
+        
+        // Check if user data exists in Redis, if not, save it
+        try {
+          const existingData = await kv.hgetall(`user:${token.id}`);
+          if (!existingData || !existingData.accessToken) {
+            console.log(`[Auth] JWT Callback: User ${token.id} not found in Redis, saving from existing token...`);
+            await kv.hset(`user:${token.id}`, {
+              id: token.id,
+              accessToken: token.accessToken,
+              refreshToken: token.refreshToken,
+              expiresAt: token.expiresAt,
+              provider: token.provider,
+            });
+            console.log("[Auth] JWT Callback: Successfully saved existing credentials to Redis.");
+          } else {
+            console.log("[Auth] JWT Callback: User credentials already exist in Redis.");
+          }
+        } catch (error) {
+          console.error("[Auth] JWT Callback: Error checking/saving existing credentials:", error);
+        }
+      } else {
+        console.log("[Auth] JWT Callback: No account/user and no existing credentials in token");
       }
 
       return token
     },
     async session({ session, token }) {
+      console.log("[Auth] Session Callback triggered!");
+      console.log("[Auth] Session user ID:", token.id);
+      console.log("[Auth] Session has accessToken:", !!token.accessToken);
       session.user.id = token.id as string
       session.user.accessToken = token.accessToken as string
       session.user.refreshToken = token.refreshToken as string
@@ -77,7 +137,6 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/auth/signin",
-    signUp: "/auth/signup",
   },
   session: {
     strategy: "jwt",
@@ -85,12 +144,12 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
 }
 
-export async function getUserByEmail(email: string) {
-  const userId = await kv.get(`email:${email}`)
-  if (!userId) return null
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const userId = (await kv.get(`email:${email}`)) as string | null;
+  if (!userId) return null;
 
-  const user = await kv.hgetall(`user:${userId}`)
-  return user ? { ...user, id: userId } : null
+  const user = await kv.hgetall<User>(`user:${userId}`);
+  return user ? { ...user, id: userId } : null;
 }
 
 export async function createUser(name: string, email: string, password: string) {

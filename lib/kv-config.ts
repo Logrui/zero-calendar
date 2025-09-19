@@ -1,14 +1,17 @@
 import { createClient } from "@vercel/kv"
 
 
-const KV_REST_API_URL = process.env.KV_REST_API_URL
-const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN
+const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
+if (!url || !token) {
+  throw new Error("KV_REST_API_URL and KV_REST_API_TOKEN environment variables not set");
+}
 
 export const kv = createClient({
-  url: KV_REST_API_URL,
-  token: KV_REST_API_TOKEN,
-})
+  url: url,
+  token: token,
+});
 
 
 export async function testKvConnection() {
@@ -22,8 +25,8 @@ export async function testKvConnection() {
       message: "KV connection successful",
       result,
       environmentVariables: {
-        KV_REST_API_URL: KV_REST_API_URL ? "Set (value hidden)" : "Not set",
-        KV_REST_API_TOKEN: KV_REST_API_TOKEN ? "Set (value hidden)" : "Not set",
+        KV_URL: url ? "Set (value hidden)" : "Not set",
+        KV_TOKEN: token ? "Set (value hidden)" : "Not set",
 
         NODE_ENV: process.env.NODE_ENV,
       },
@@ -34,8 +37,8 @@ export async function testKvConnection() {
       message: "KV connection failed",
       error: error instanceof Error ? error.message : "Unknown error",
       environmentVariables: {
-        KV_REST_API_URL: KV_REST_API_URL ? "Set (value hidden)" : "Not set",
-        KV_REST_API_TOKEN: KV_REST_API_TOKEN ? "Set (value hidden)" : "Not set",
+        KV_URL: url ? "Set (value hidden)" : "Not set",
+        KV_TOKEN: token ? "Set (value hidden)" : "Not set",
 
         NODE_ENV: process.env.NODE_ENV,
       },
